@@ -13,6 +13,25 @@ A FiveM resource that replaces the in-game minimap with a custom map showing pos
 
 ## Changelog
 
+### Rev3
+Fixed a client crash that occurred when disconnecting and reconnecting to the server.
+
+**Background:**  
+On reconnect, FiveM reinitializes the streaming system via `RELOAD_MAP_STORE`. The original script called `AddMinimapOverlay("MINIMAP_LOADER.gfx")` immediately on resource start, which raced against this initialization and caused a crash in `gta-streaming-five.dll`.  
+Analysis was performed using crash dumps (`CitizenFX_log`) which showed the following sequence every time:
+```
+Performing deferred RELOAD_MAP_STORE
+Game finished loading!
+Error: SendNetPacket called from multiple threads!  ← crash
+gta-streaming-five.dll+70E67
+```
+
+**Changes (`client.lua`):**
+- **Fixed `AddMinimapOverlay` call timing (direct cause of crash):** `AddMinimapOverlay("MINIMAP_LOADER.gfx")` races against `RELOAD_MAP_STORE` on reconnect and crashes `gta-streaming-five.dll`. Now waits until both `NetworkIsGameInProgress()` and `IsMinimapRendering()` return `true`, then adds an additional 3-second delay to ensure the streaming system has fully settled.
+- **Added `onClientResourceStop` handler:** No cleanup was performed on resource stop. Now calls `RemoveMinimapOverlay`, `RemoveBlip` on all dummy blips, and `ResetMapZoomDataLevel`.
+- **Fixed nil crash in `extendPauseMenuMapBounds`:** When `extraTiles` is empty, `drawnTiles[1]` is `nil`, causing a Lua script error. Added an `#extraTilesNames == 0` early-return guard.
+- **Fixed radar zoom loop:** Changed `Citizen.Wait(1)` (1000 calls/sec) infinite loop to `Citizen.Wait(0)` (frame-synced) and added a `radarLoopActive` flag so the loop can be stopped cleanly from `onClientResourceStop`.
+
 ### Rev2
 The known issue — postal codes appearing blurry when zooming in, which occurred when Graphics > Texture Quality was set to Normal or below — is resolved in this revision.
 

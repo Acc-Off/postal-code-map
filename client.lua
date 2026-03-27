@@ -6,14 +6,16 @@ Citizen.CreateThread(function()
     SetMapZoomDataLevel(4, 22.3, 0.9, 0.08, 0.0, 0.0)
 end)
 
+local radarLoopActive = true
+
 Citizen.CreateThread(function()
-    while true do
-		Citizen.Wait(1)
-		if IsPedOnFoot(GetPlayerPed(-1)) then 
-			SetRadarZoom(1100)
-		elseif IsPedInAnyVehicle(GetPlayerPed(-1), true) then
-			SetRadarZoom(1100)
-		end
+    while radarLoopActive do
+        Citizen.Wait(0)
+        if IsPedOnFoot(GetPlayerPed(-1)) then
+            SetRadarZoom(1100)
+        elseif IsPedInAnyVehicle(GetPlayerPed(-1), true) then
+            SetRadarZoom(1100)
+        end
     end
 end)
 
@@ -31,6 +33,8 @@ drawnTiles = {}
 
 -- List to store the dummy blip handles.
 dummyBlips = {}
+
+
 
 -- Function that will create a new tile.
 function createTile(tileName)
@@ -156,7 +160,7 @@ function createAllTiles()
         createTile(tileName)
     end
 
-    if #dummyBlips == 0 then
+    if #dummyBlips == 0 and #drawnTiles > 0 then
         extendPauseMenuMapBounds()
     end
 end
@@ -201,7 +205,7 @@ function extendPauseMenuMapBounds()
 
 
     local extraTilesNames = drawnTiles
-    if extraTilesNames == nil then
+    if extraTilesNames == nil or #extraTilesNames == 0 then
         return
     end
 
@@ -314,9 +318,44 @@ exports("isTileDrawn", isTileDrawn)
 
 
 Citizen.CreateThread(function()
+    while not (NetworkIsGameInProgress() and IsMinimapRendering()) do
+        Citizen.Wait(0)
+    end
+    -- Extra delay to ensure the streaming system has fully settled after RELOAD_MAP_STORE.
+    Citizen.Wait(3000)
+
     -- Load the minimap overlay.
     overlay = loadMinimapOverlay("MINIMAP_LOADER.gfx")
 
     -- Draw all tiles.
     createAllTiles()
+end)
+
+-- Cleanup on resource stop to prevent client crash on reconnect.
+AddEventHandler('onClientResourceStop', function(resourceName)
+    if GetCurrentResourceName() ~= resourceName then
+        return
+    end
+
+    -- Stop the radar zoom loop.
+    radarLoopActive = false
+
+    -- Remove the minimap overlay. Without this, reconnecting causes a crash
+    -- because AddMinimapOverlay is called again for the same GFX file.
+    if overlay ~= 0 then
+        RemoveMinimapOverlay(overlay)
+        overlay = 0
+    end
+
+    -- Remove dummy blips.
+    for i = 1, #dummyBlips do
+        RemoveBlip(dummyBlips[i])
+    end
+    dummyBlips = {}
+    drawnTiles = {}
+
+    -- Reset map zoom data levels to default.
+    for i = 0, 4 do
+        ResetMapZoomDataLevel(i)
+    end
 end)
